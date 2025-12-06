@@ -1,0 +1,273 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// User/Customer
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String?
+  phone         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  addresses     Address[]
+  orders        Order[]
+  cart          Cart?
+  wishlist      Wishlist?
+  reviews       Review[]
+}
+
+// Address
+model Address {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  fullName      String
+  line1         String
+  line2         String?
+  city          String
+  state         String?
+  country       String
+  postalCode    String
+  phone         String
+  
+  isDefault     Boolean   @default(false)
+  type          String    // SHIPPING, BILLING, BOTH
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+// Product
+model Product {
+  id            String    @id @default(cuid())
+  name          String
+  slug          String    @unique
+  description   String
+  
+  // Modest activewear specific
+  coverageLevel String    // FULL, MODERATE, LIGHT
+  fabricType    String    // BREATHABLE, MOISTURE_WICKING, etc.
+  activityType  String    // YOGA, RUNNING, GYM, CASUAL
+  
+  basePrice     Float
+  comparePrice  Float?
+  
+  categoryId    String?
+  category      Category? @relation(fields: [categoryId], references: [id])
+  
+  images        ProductImage[]
+  variants      ProductVariant[]
+  reviews       Review[]
+  
+  tags          String?   // JSON string for tags
+  metaTitle     String?
+  metaDesc      String?
+  
+  featured      Boolean   @default(false)
+  status        String    @default("ACTIVE") // DRAFT, ACTIVE, ARCHIVED
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+// Product Variant (Size, Color combinations)
+model ProductVariant {
+  id            String    @id @default(cuid())
+  productId     String
+  product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  sku           String    @unique
+  size          String    // XS, S, M, L, XL, 2XL, 3XL
+  color         String    // Black, Espresso, Charcoal, Navy, etc.
+  colorHex      String    // #3E2723
+  
+  price         Float?    // Override base price if needed
+  stock         Int       @default(0)
+  
+  weight        Float?    // For shipping calculations
+  
+  images        String?   // JSON string for specific variant images
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  cartItems     CartItem[]
+  orderItems    OrderItem[]
+}
+
+// Product Images
+model ProductImage {
+  id            String    @id @default(cuid())
+  productId     String
+  product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  url           String
+  altText       String?
+  position      Int       @default(0)
+  
+  createdAt     DateTime  @default(now())
+}
+
+// Category/Collection
+model Category {
+  id            String    @id @default(cuid())
+  name          String
+  slug          String    @unique
+  description   String?
+  
+  image         String?
+  parentId      String?
+  parent        Category? @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children      Category[] @relation("CategoryHierarchy")
+  
+  products      Product[]
+  
+  displayOrder  Int       @default(0)
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+// Cart
+model Cart {
+  id            String    @id @default(cuid())
+  userId        String?   @unique
+  user          User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  sessionId     String?   @unique // For guest carts
+  
+  items         CartItem[]
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  expiresAt     DateTime  // Auto-cleanup old carts
+}
+
+// Cart Item
+model CartItem {
+  id            String    @id @default(cuid())
+  cartId        String
+  cart          Cart      @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  
+  variantId     String
+  variant       ProductVariant @relation(fields: [variantId], references: [id])
+  
+  quantity      Int       @default(1)
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  @@unique([cartId, variantId])
+}
+
+// Order
+model Order {
+  id            String    @id @default(cuid())
+  orderNumber   String    @unique // User-facing order number
+  
+  userId        String?
+  user          User?     @relation(fields: [userId], references: [id])
+  
+  email         String
+  
+  // Pricing
+  subtotal      Float
+  shippingCost  Float     @default(0)
+  tax           Float     @default(0)
+  discount      Float     @default(0)
+  total         Float
+  
+  currency      String    @default("USD")
+  
+  // Addresses (denormalized for historical record)
+  shippingAddress String
+  billingAddress  String
+  
+  // Payment
+  paymentStatus   String    @default("PENDING") // PENDING, PAID, FAILED, REFUNDED
+  paymentMethod   String
+  stripePaymentId String?
+  
+  // Fulfillment
+  fulfillmentStatus String @default("UNFULFILLED") // UNFULFILLED, PROCESSING, SHIPPED, DELIVERED, RETURNED
+  trackingNumber    String?
+  carrier           String?
+  shippedAt         DateTime?
+  deliveredAt       DateTime?
+  
+  items         OrderItem[]
+  
+  notes         String?
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+// Order Item
+model OrderItem {
+  id            String    @id @default(cuid())
+  orderId       String
+  order         Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  variantId     String
+  variant       ProductVariant @relation(fields: [variantId], references: [id])
+  
+  // Snapshot of product at time of purchase
+  productName   String
+  variantName   String
+  
+  quantity      Int
+  price         Float     // Price at time of purchase
+  
+  createdAt     DateTime  @default(now())
+}
+
+// Review
+model Review {
+  id            String    @id @default(cuid())
+  productId     String
+  product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  rating        Int       // 1-5
+  title         String?
+  comment       String
+  
+  verified      Boolean   @default(false) // Verified purchase
+  
+  helpful       Int       @default(0)
+  
+  status        String    @default("PENDING") // PENDING, APPROVED, REJECTED
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+// Wishlist
+model Wishlist {
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  productIds    String?   // JSON string for product IDs
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
